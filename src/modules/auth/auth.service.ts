@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import type { StringValue } from 'ms';
 import * as crypto from 'node:crypto';
 
 import type {
@@ -143,11 +144,11 @@ export class AuthService {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwt.signAsync(accessPayload, {
         secret: jwtCfg.accessSecret,
-        expiresIn: jwtCfg.accessExpiresIn,
+        expiresIn: jwtCfg.accessExpiresIn as StringValue,
       }),
       this.jwt.signAsync(refreshPayload, {
         secret: jwtCfg.refreshSecret,
-        expiresIn: jwtCfg.refreshExpiresIn,
+        expiresIn: jwtCfg.refreshExpiresIn as StringValue,
       }),
     ]);
 

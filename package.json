@@ -28,17 +28,22 @@
     "@nestjs/swagger": "^11.0.0",
     "@nestjs/throttler": "^6.4.0",
     "@types/bcrypt": "^6.0.0",
+    "@types/multer": "^2.1.0",
+    "@types/nodemailer": "^8.0.0",
     "@types/passport-jwt": "^4.0.1",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cloudinary": "^2.10.0",
     "helmet": "^8.0.0",
     "joi": "^17.13.3",
     "mongoose": "^9.6.2",
+    "nodemailer": "^8.0.7",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "stripe": "^22.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

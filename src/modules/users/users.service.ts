@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import type { UpdateQuery } from 'mongoose';
 import { Model, Types } from 'mongoose';
 
 import type { Role } from '@/common/types/auth.types';
@@ -97,5 +98,32 @@ export class UsersService {
       })
       .select('+passwordResetToken +passwordResetExpiresAt')
       .exec();
+  }
+
+  async update(userId: string, data: UpdateQuery<User>): Promise<UserDocument | null> {
+    return this.userModel
+      .findByIdAndUpdate(userId, data, { new: true })
+      .exec();
+  }
+
+  async findAll(
+    filter: Record<string, unknown> = {},
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: UserDocument[]; total: number }> {
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      this.userModel.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }).exec(),
+      this.userModel.countDocuments(filter).exec(),
+    ]);
+    return { data, total };
+  }
+
+  async deactivate(userId: string): Promise<void> {
+    const result = await this.userModel.updateOne(
+      { _id: userId },
+      { isActive: false },
+    );
+    if (result.matchedCount === 0) throw new NotFoundException('User not found');
   }
 }
