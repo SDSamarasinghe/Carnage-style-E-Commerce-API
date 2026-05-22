@@ -38,9 +38,9 @@ export class CategoriesService {
   }
 
   /** Returns a tree: top-level categories with nested children */
-  async findTree(): Promise<unknown[]> {
+  async findTree(activeOnly = true): Promise<unknown[]> {
     const all = await this.categoryModel
-      .find({ isActive: true })
+      .find(activeOnly ? { isActive: true } : {})
       .sort({ order: 1, name: 1 })
       .lean()
       .exec();

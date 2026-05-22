@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 
 import { UsersModule } from '@/modules/users/users.module';
 
+import { AdminBranchesController } from './admin-branches.controller';
 import { BranchesController } from './branches.controller';
 import { BranchesService } from './branches.service';
 import { Branch, BranchSchema } from './schemas/branch.schema';
@@ -12,7 +13,7 @@ import { Branch, BranchSchema } from './schemas/branch.schema';
     MongooseModule.forFeature([{ name: Branch.name, schema: BranchSchema }]),
     UsersModule,
   ],
-  controllers: [BranchesController],
+  controllers: [BranchesController, AdminBranchesController],
   providers: [BranchesService],
   exports: [BranchesService],
 })

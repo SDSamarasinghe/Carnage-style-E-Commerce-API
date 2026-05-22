@@ -35,6 +35,27 @@ export class BranchesService {
     return this.branchModel.find(filter).populate('manager', 'firstName lastName email').exec();
   }
 
+  async findAllPaged(
+    page = 1,
+    limit = 20,
+  ): Promise<{
+    data: BranchDocument[];
+    meta: { total: number; page: number; limit: number; pages: number };
+  }> {
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      this.branchModel
+        .find()
+        .populate('manager', 'firstName lastName email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.branchModel.countDocuments().exec(),
+    ]);
+    return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) || 1 } };
+  }
+
   async findById(id: string): Promise<BranchDocument> {
     if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Branch not found');
     const branch = await this.branchModel

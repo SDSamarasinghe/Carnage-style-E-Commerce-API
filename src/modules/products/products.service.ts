@@ -55,7 +55,8 @@ export class ProductsService {
       filter['variants.color.name'] = { $regex: filters.color, $options: 'i' };
     }
     if (filters.size) {
-      filter['variants.size'] = filters.size;
+      const sizes = filters.size.split(',').filter(Boolean);
+      filter['variants.size'] = sizes.length > 1 ? { $in: sizes } : sizes[0];
     }
     if (filters.featured) filter.isFeatured = true;
     if (filters.newArrival) filter.isNewArrival = true;
@@ -66,6 +67,7 @@ export class ProductsService {
     else if (sort === 'price_asc') sortObj = { basePrice: 1 };
     else if (sort === 'price_desc') sortObj = { basePrice: -1 };
     else if (sort === 'bestselling') sortObj = { salesCount: -1 };
+    else if (sort === 'rating') sortObj = { 'rating.average': -1 };
 
     const [data, total] = await Promise.all([
       this.productModel
@@ -81,6 +83,35 @@ export class ProductsService {
     return {
       data,
       meta: { total, page, limit, pages: Math.ceil(total / limit) },
+    };
+  }
+
+  async findAllAdmin(
+    page = 1,
+    limit = 20,
+    search?: string,
+  ): Promise<{
+    data: ProductDocument[];
+    meta: { total: number; page: number; limit: number; pages: number };
+  }> {
+    const filter: Record<string, unknown> = {};
+    if (search) filter.name = { $regex: search, $options: 'i' };
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.productModel
+        .find(filter)
+        .populate('category', 'name slug')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.productModel.countDocuments(filter).exec(),
+    ]);
+
+    return {
+      data,
+      meta: { total, page, limit, pages: Math.ceil(total / limit) || 1 },
     };
   }
 

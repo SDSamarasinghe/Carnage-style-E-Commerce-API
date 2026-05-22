@@ -2,13 +2,114 @@ import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 import { Branch, type BranchDocument } from '@/modules/branches/schemas/branch.schema';
 import { Category, type CategoryDocument } from '@/modules/categories/schemas/category.schema';
+import { Collection, type CollectionDocument } from '@/modules/collections/schemas/collection.schema';
 import { Inventory, type InventoryDocument } from '@/modules/inventory/schemas/inventory.schema';
 import { Product, type ProductDocument } from '@/modules/products/schemas/product.schema';
 import { User, type UserDocument } from '@/modules/users/schemas/user.schema';
+
+const APPAREL_SIZES = ['XS', 'S', 'M', 'L', 'XL'];
+const ACCESSORY_SIZES = ['One Size'];
+
+const COLOR_POOL = [
+  { name: 'Black', hexCode: '#000000' },
+  { name: 'White', hexCode: '#FFFFFF' },
+  { name: 'Navy', hexCode: '#1B2A4A' },
+  { name: 'Grey', hexCode: '#808080' },
+  { name: 'Olive', hexCode: '#708238' },
+  { name: 'Sand', hexCode: '#D6C88B' },
+  { name: 'Charcoal', hexCode: '#36454F' },
+  { name: 'Burgundy', hexCode: '#800020' },
+  { name: 'Mauve', hexCode: '#C8A0A0' },
+  { name: 'Forest', hexCode: '#2E4A34' },
+];
+
+interface ProductTypeSpec {
+  type: string;
+  categorySlug: string;
+  basePrice: number;
+  sizes: string[];
+}
+
+interface GenderSpec {
+  gender: 'men' | 'women' | 'accessories';
+  skuPrefix: string;
+  styles: string[];
+  types: ProductTypeSpec[];
+}
+
+// 3 genders x 5 types x 10 styles = 150 products (50 per gender).
+const PRODUCT_BLUEPRINT: GenderSpec[] = [
+  {
+    gender: 'men',
+    skuPrefix: 'MEN',
+    styles: ['Core', 'Apex', 'Vanguard', 'Tactical', 'Rogue', 'Phantom', 'Titan', 'Forge', 'Element', 'Surge'],
+    types: [
+      { type: 'Training Tee', categorySlug: 'oversized-tees-men', basePrice: 2800, sizes: APPAREL_SIZES },
+      { type: 'Graphic Tee', categorySlug: 'oversized-tees-men', basePrice: 3000, sizes: APPAREL_SIZES },
+      { type: 'Performance Shorts', categorySlug: 'shorts-men', basePrice: 2400, sizes: APPAREL_SIZES },
+      { type: 'Pullover Hoodie', categorySlug: 'hoodies-men', basePrice: 5500, sizes: APPAREL_SIZES },
+      { type: 'Zip Hoodie', categorySlug: 'hoodies-men', basePrice: 5900, sizes: APPAREL_SIZES },
+    ],
+  },
+  {
+    gender: 'women',
+    skuPrefix: 'WMN',
+    styles: ['Aura', 'Bloom', 'Luxe', 'Flow', 'Sculpt', 'Studio', 'Grace', 'Pulse', 'Halo', 'Ember'],
+    types: [
+      { type: 'Sculpt Leggings', categorySlug: 'leggings-biker-shorts', basePrice: 3500, sizes: APPAREL_SIZES },
+      { type: 'Biker Shorts', categorySlug: 'leggings-biker-shorts', basePrice: 2600, sizes: APPAREL_SIZES },
+      { type: 'Strappy Sports Bra', categorySlug: 'sports-bras', basePrice: 2200, sizes: APPAREL_SIZES },
+      { type: 'Wide-Leg Joggers', categorySlug: 'joggers-women', basePrice: 3200, sizes: APPAREL_SIZES },
+      { type: 'Ribbed Tank', categorySlug: 'tank-tops-women', basePrice: 1700, sizes: APPAREL_SIZES },
+    ],
+  },
+  {
+    gender: 'accessories',
+    skuPrefix: 'ACC',
+    styles: ['Carnage', 'Pro', 'Elite', 'Daily', 'Street', 'Urban', 'Prime', 'Bold', 'Classic', 'Heritage'],
+    types: [
+      { type: 'Gym Duffel Bag', categorySlug: 'accessories', basePrice: 4500, sizes: ACCESSORY_SIZES },
+      { type: 'Lifting Straps', categorySlug: 'accessories', basePrice: 1200, sizes: ACCESSORY_SIZES },
+      { type: 'Snapback Cap', categorySlug: 'accessories', basePrice: 1800, sizes: ACCESSORY_SIZES },
+      { type: 'Insulated Water Bottle', categorySlug: 'accessories', basePrice: 2200, sizes: ACCESSORY_SIZES },
+      { type: 'Resistance Band Set', categorySlug: 'accessories', basePrice: 2600, sizes: ACCESSORY_SIZES },
+    ],
+  },
+];
+
+const slugify = (value: string): string =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+interface GeneratedVariant {
+  sku: string;
+  size: string;
+  color: { name: string; hexCode: string };
+  additionalPrice: number;
+}
+
+interface GeneratedProduct {
+  name: string;
+  slug: string;
+  description: string;
+  shortDescription: string;
+  gender: GenderSpec['gender'];
+  categorySlug: string;
+  basePrice: number;
+  compareAtPrice?: number;
+  tags: string[];
+  isPublished: boolean;
+  isFeatured: boolean;
+  isNewArrival: boolean;
+  variants: GeneratedVariant[];
+}
 
 @Injectable()
 export class DataSeeder implements OnApplicationBootstrap {
@@ -20,6 +121,7 @@ export class DataSeeder implements OnApplicationBootstrap {
     @InjectModel(Category.name) private readonly categoryModel: Model<CategoryDocument>,
     @InjectModel(Product.name) private readonly productModel: Model<ProductDocument>,
     @InjectModel(Inventory.name) private readonly inventoryModel: Model<InventoryDocument>,
+    @InjectModel(Collection.name) private readonly collectionModel: Model<CollectionDocument>,
     private readonly config: ConfigService,
   ) {}
 
@@ -28,6 +130,7 @@ export class DataSeeder implements OnApplicationBootstrap {
     await this.seedBranches();
     await this.seedCategories();
     await this.seedProducts();
+    await this.seedCollections();
   }
 
   private async seedBranches(): Promise<void> {
@@ -128,43 +231,149 @@ export class DataSeeder implements OnApplicationBootstrap {
     this.logger.log('Seeded 10 categories.');
   }
 
-  private async seedProducts(): Promise<void> {
-    const count = await this.productModel.countDocuments().exec();
-    if (count > 0) return;
+  private buildProductCatalog(): GeneratedProduct[] {
+    const catalog: GeneratedProduct[] = [];
 
-    const catLeggings = await this.categoryModel.findOne({ slug: 'leggings-biker-shorts' }).lean().exec();
-    const catSportsBra = await this.categoryModel.findOne({ slug: 'sports-bras' }).lean().exec();
-    const catTees = await this.categoryModel.findOne({ slug: 'oversized-tees-men' }).lean().exec();
-    const catShorts = await this.categoryModel.findOne({ slug: 'shorts-men' }).lean().exec();
-    const catTanks = await this.categoryModel.findOne({ slug: 'tank-tops-women' }).lean().exec();
-    const catJoggers = await this.categoryModel.findOne({ slug: 'joggers-women' }).lean().exec();
+    for (const genderSpec of PRODUCT_BLUEPRINT) {
+      let index = 0;
+      for (const typeSpec of genderSpec.types) {
+        for (let s = 0; s < genderSpec.styles.length; s++) {
+          const style = genderSpec.styles[s];
+          const name = `${style} ${typeSpec.type}`;
+          const colors = [COLOR_POOL[s % COLOR_POOL.length], COLOR_POOL[(s + 3) % COLOR_POOL.length]];
+          const basePrice = typeSpec.basePrice + s * 50;
 
-    const products = [
-      { name: 'High Waist Performance Leggings', slug: 'high-waist-performance-leggings', gender: 'women', basePrice: 3500, compareAtPrice: 4500, category: catLeggings?._id, isPublished: true, isNewArrival: true, isFeatured: true, variants: [{ sku: 'HWPL-BLK-XS', size: 'XS', color: { name: 'Black', hexCode: '#000000' }, additionalPrice: 0 }, { sku: 'HWPL-BLK-S', size: 'S', color: { name: 'Black', hexCode: '#000000' }, additionalPrice: 0 }, { sku: 'HWPL-BLK-M', size: 'M', color: { name: 'Black', hexCode: '#000000' }, additionalPrice: 0 }, { sku: 'HWPL-BLK-L', size: 'L', color: { name: 'Black', hexCode: '#000000' }, additionalPrice: 0 }] },
-      { name: 'Strappy Sports Bra', slug: 'strappy-sports-bra', gender: 'women', basePrice: 2200, category: catSportsBra?._id, isPublished: true, isNewArrival: true, variants: [{ sku: 'SSB-SND-XS', size: 'XS', color: { name: 'Sand', hexCode: '#D6C88B' }, additionalPrice: 0 }, { sku: 'SSB-SND-S', size: 'S', color: { name: 'Sand', hexCode: '#D6C88B' }, additionalPrice: 0 }, { sku: 'SSB-BLK-S', size: 'S', color: { name: 'Black', hexCode: '#000000' }, additionalPrice: 0 }] },
-      { name: 'Oversized Graphic Tee', slug: 'oversized-graphic-tee', gender: 'men', basePrice: 2800, category: catTees?._id, isPublished: true, isFeatured: true, variants: [{ sku: 'OGT-WHT-S', size: 'S', color: { name: 'White', hexCode: '#FFFFFF' }, additionalPrice: 0 }, { sku: 'OGT-WHT-M', size: 'M', color: { name: 'White', hexCode: '#FFFFFF' }, additionalPrice: 0 }, { sku: 'OGT-BLK-M', size: 'M', color: { name: 'Black', hexCode: '#000000' }, additionalPrice: 0 }, { sku: 'OGT-BLK-L', size: 'L', color: { name: 'Black', hexCode: '#000000' }, additionalPrice: 0 }, { sku: 'OGT-BLK-XL', size: 'XL', color: { name: 'Black', hexCode: '#000000' }, additionalPrice: 200 }] },
-      { name: 'Mesh Training Shorts', slug: 'mesh-training-shorts', gender: 'men', basePrice: 1800, compareAtPrice: 2200, category: catShorts?._id, isPublished: true, variants: [{ sku: 'MTS-NVY-S', size: 'S', color: { name: 'Navy', hexCode: '#1B2A4A' }, additionalPrice: 0 }, { sku: 'MTS-NVY-M', size: 'M', color: { name: 'Navy', hexCode: '#1B2A4A' }, additionalPrice: 0 }, { sku: 'MTS-NVY-L', size: 'L', color: { name: 'Navy', hexCode: '#1B2A4A' }, additionalPrice: 0 }] },
-      { name: 'Seamless Ribbed Tank', slug: 'seamless-ribbed-tank', gender: 'women', basePrice: 1500, category: catTanks?._id, isPublished: true, variants: [{ sku: 'SRT-MGV-XS', size: 'XS', color: { name: 'Mauve', hexCode: '#C8A0A0' }, additionalPrice: 0 }, { sku: 'SRT-MGV-S', size: 'S', color: { name: 'Mauve', hexCode: '#C8A0A0' }, additionalPrice: 0 }, { sku: 'SRT-MGV-M', size: 'M', color: { name: 'Mauve', hexCode: '#C8A0A0' }, additionalPrice: 0 }] },
-      { name: 'Jogger Wide-Leg', slug: 'jogger-wide-leg', gender: 'women', basePrice: 3200, category: catJoggers?._id, isPublished: true, isFeatured: true, variants: [{ sku: 'JWL-GRY-S', size: 'S', color: { name: 'Grey', hexCode: '#808080' }, additionalPrice: 0 }, { sku: 'JWL-GRY-M', size: 'M', color: { name: 'Grey', hexCode: '#808080' }, additionalPrice: 0 }, { sku: 'JWL-GRY-L', size: 'L', color: { name: 'Grey', hexCode: '#808080' }, additionalPrice: 0 }] },
-    ];
+          const variants: GeneratedVariant[] = [];
+          for (const color of colors) {
+            for (const size of typeSpec.sizes) {
+              const sizeToken = size.replace(/\s+/g, '').toUpperCase();
+              variants.push({
+                sku: `${genderSpec.skuPrefix}-${String(index).padStart(2, '0')}-${color.name.slice(0, 3).toUpperCase()}-${sizeToken}`,
+                size,
+                color,
+                additionalPrice: size === 'XL' ? 200 : 0,
+              });
+            }
+          }
 
-    const branches = await this.branchModel.find().lean().exec();
-    for (const p of products) {
-      const product = await this.productModel.create(p);
-      // Seed inventory for each branch
-      for (const branch of branches) {
-        for (const variant of product.variants) {
-          await this.inventoryModel.create({
-            product: product._id,
-            variantSku: variant.sku,
-            branch: branch._id,
-            stock: Math.floor(Math.random() * 30) + 5,
-            lowStockThreshold: 5,
+          catalog.push({
+            name,
+            slug: slugify(name),
+            description: `${name} — premium ${genderSpec.gender} ${typeSpec.type.toLowerCase()} built for movement and everyday comfort.`,
+            shortDescription: `${typeSpec.type} engineered for all-day performance.`,
+            gender: genderSpec.gender,
+            categorySlug: typeSpec.categorySlug,
+            basePrice,
+            compareAtPrice: s % 2 === 0 ? basePrice + 700 : undefined,
+            tags: ['carnage', genderSpec.gender, slugify(typeSpec.type)],
+            isPublished: true,
+            isFeatured: s === 0,
+            isNewArrival: s < 2,
+            variants,
           });
+          index++;
         }
       }
     }
 
-    this.logger.log('Seeded 6 products with per-branch inventory.');
+    return catalog;
+  }
+
+  private async seedProducts(): Promise<void> {
+    const branches = await this.branchModel.find().select('_id').lean().exec();
+    if (branches.length === 0) {
+      this.logger.warn('No branches found — skipping product seeding.');
+      return;
+    }
+
+    const categories = await this.categoryModel.find().select('_id slug').lean().exec();
+    const categoryIdBySlug = new Map(categories.map((c) => [c.slug, c._id]));
+
+    const catalog = this.buildProductCatalog();
+    const existing = await this.productModel
+      .find({ slug: { $in: catalog.map((p) => p.slug) } })
+      .select('slug')
+      .lean()
+      .exec();
+    const existingSlugs = new Set(existing.map((p) => p.slug));
+    const toCreate = catalog.filter((p) => !existingSlugs.has(p.slug));
+
+    if (toCreate.length === 0) {
+      this.logger.log('Sample products already seeded — skipping.');
+      return;
+    }
+
+    const created = await this.productModel.insertMany(
+      toCreate.map(({ categorySlug, ...product }) => ({
+        ...product,
+        category: categoryIdBySlug.get(categorySlug),
+      })),
+    );
+
+    const inventoryDocs = created.flatMap((product) =>
+      product.variants.flatMap((variant) =>
+        branches.map((branch) => ({
+          product: product._id,
+          variantSku: variant.sku,
+          branch: branch._id,
+          stock: Math.floor(Math.random() * 40) + 10,
+          lowStockThreshold: 5,
+        })),
+      ),
+    );
+
+    const CHUNK_SIZE = 1000;
+    for (let i = 0; i < inventoryDocs.length; i += CHUNK_SIZE) {
+      await this.inventoryModel.insertMany(inventoryDocs.slice(i, i + CHUNK_SIZE));
+    }
+
+    this.logger.log(
+      `Seeded ${created.length} products with ${inventoryDocs.length} inventory records across ${branches.length} branches.`,
+    );
+  }
+
+  private async seedCollections(): Promise<void> {
+    const count = await this.collectionModel.countDocuments().exec();
+    if (count > 0) return;
+
+    const pickIds = async (filter: Record<string, unknown>): Promise<Types.ObjectId[]> => {
+      const docs = await this.productModel
+        .find({ isPublished: true, ...filter })
+        .select('_id')
+        .limit(24)
+        .lean()
+        .exec();
+      return docs.map((d) => d._id);
+    };
+
+    const collections = [
+      {
+        name: 'New Arrivals',
+        slug: 'new-arrivals',
+        description: 'The latest drops — fresh activewear built for movement.',
+        isFeatured: true,
+        isActive: true,
+        products: await pickIds({ isNewArrival: true }),
+      },
+      {
+        name: 'Sale',
+        slug: 'sale',
+        description: 'Limited-time markdowns across the range.',
+        isFeatured: true,
+        isActive: true,
+        products: await pickIds({ compareAtPrice: { $exists: true, $gt: 0 } }),
+      },
+      {
+        name: 'Best Sellers',
+        slug: 'best-sellers',
+        description: 'Our most-loved pieces, hand-picked.',
+        isFeatured: false,
+        isActive: true,
+        products: await pickIds({ isFeatured: true }),
+      },
+    ];
+
+    await this.collectionModel.insertMany(collections);
+    this.logger.log(`Seeded ${collections.length} collections.`);
   }
 }

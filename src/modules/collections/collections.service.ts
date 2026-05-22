@@ -34,6 +34,26 @@ export class CollectionsService {
       .exec();
   }
 
+  async findAllPaged(
+    page = 1,
+    limit = 20,
+  ): Promise<{
+    data: CollectionDocument[];
+    meta: { total: number; page: number; limit: number; pages: number };
+  }> {
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      this.collectionModel
+        .find()
+        .sort({ isFeatured: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.collectionModel.countDocuments().exec(),
+    ]);
+    return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) || 1 } };
+  }
+
   async findBySlug(slug: string): Promise<CollectionDocument> {
     const col = await this.collectionModel
       .findOne({ slug, isActive: true })
